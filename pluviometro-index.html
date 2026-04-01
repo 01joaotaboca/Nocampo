@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Pluviômetro Pro | Gestão de Chuvas</title>
+    <meta name="description" content="Sistema profissional de monitoramento de chuvas para gestão agrícola">
+    <meta name="theme-color" content="#2e7d32">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Pluviômetro">
+
+    <!-- PWA Icons -->
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <link rel="manifest" href="manifest.json">
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        * { box-sizing: border-box; }
+        :root {
+            --primary: #2e7d32;
+            --primary-light: #43a047;
+            --accent: #66bb6a;
+            --accent2: #a5d6a7;
+            --dark: #0a1a0a;
+            --card: #111f11;
+            --card2: #152a15;
+            --text: #e0e0e0;
+            --text-muted: #88aa88;
+            --border: rgba(102,187,106,0.15);
+            --shadow: rgba(0,0,0,0.5);
+        }
+        body {
+            font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
+            background: #0a1a0a;
+            color: var(--text);
+            margin: 0;
+            padding-bottom: 30px;
+            min-height: 100vh;
+        }
+        /* ── Splash ─────────────────────────────── */
+        #splash {
+            position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: linear-gradient(160deg, #071207 0%, #0d2010 50%, #071207 100%);
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            z-index: 9999; color: white; gap: 16px;
+            transition: opacity 0.6s ease;
+        }
+        #splash .logo { font-size: 56px; animation: pulse 2s infinite; }
+        #splash h2 { margin: 0; font-size: 24px; letter-spacing: 3px; color: #fff; text-transform: uppercase; }
+        #splashMsg { color: var(--accent); font-size: 13px; }
+        @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.1)} }
+        .splash-bar {
+            width: 200px; height: 3px;
+            background: #1a3a1a; border-radius: 3px; overflow: hidden;
+        }
+        .splash-progress {
+            height: 100%; width: 0%;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            border-radius: 3px;
+            transition: width 0.4s ease;
+        }
+        /* SQL instructions */
+        .sql-instructions {
+            display: none; max-width: 90%;
+            background: #0c2a0c; border: 1px solid #2a5a2a;
+            border-radius: 12px; padding: 16px; margin-top: 12px;
+        }
+        .sql-instructions.show { display: block; }
+        .sql-instructions p { color: #ffaa66; font-size: 12px; margin: 0 0 8px; }
+        .sql-instructions pre {
+            background: #071407; padding: 12px; border-radius: 8px;
+            font-size: 11px; color: #aaffaa; overflow-x: auto; margin: 0;
+        }
+        /* ── Header ─────────────────────────────── */
+        header {
+            padding: 16px;
+            text-align: center;
+            background: linear-gradient(180deg, rgba(0,0,0,0.9) 0%, rgba(10,26,10,0.95) 100%);
+            border-bottom: 2px solid rgba(102,187,106,0.3);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            position: sticky; top: 0; z-index: 100;
+        }
+        header h2 {
+            margin: 0; font-size: 17px; letter-spacing: 2px;
+            color: #fff; text-transform: uppercase;
+        }
+        header small { color: var(--text-muted); font-size: 11px; }
+        /* ── Layout ──────────────────────────────── */
+        .container { max-width: 700px; margin: 0 auto; padding: 14px; }
+        .card {
+            background: var(--card);
+            padding: 18px 16px;
+            border-radius: 20px;
+            margin-bottom: 16px;
+            border: 1px solid var(--border);
+            box-shadow: 0 4px 20px var(--shadow);
+        }
+        h3 {
+            color: var(--accent); margin: 0 0 14px 0;
+            font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        /* ── Nomes fazendas ──────────────────────── */
+        .nome-fazenda-group { display: flex; gap: 10px; margin-bottom: 16px; }
+        .nome-fazenda-group div {
+            flex: 1; background: rgba(0,0,0,0.3);
+            padding: 10px 14px; border-radius: 14px;
+            border: 1px solid var(--border);
+        }
+        .nome-fazenda-group label {
+            font-size: 10px; font-weight: bold;
+            color: var(--accent); display: block; margin-bottom: 6px;
+        }
+        .nome-fazenda-group input {
+            background: transparent; border: none;
+            border-bottom: 1px solid rgba(102,187,106,0.3);
+            color: white; width: 100%; padding: 4px 0; font-size: 14px;
+            outline: none;
+        }
+        /* ── Farm selector ───────────────────────── */
+        .farm-selector { display: flex; gap: 8px; margin-bottom: 18px; }
+        .farm-btn {
+            flex: 1; background: rgba(0,0,0,0.3);
+            border: 1px solid var(--border);
+            padding: 13px; border-radius: 40px;
+            color: #888; font-weight: bold; cursor: pointer;
+            font-size: 13px; transition: all 0.3s;
+        }
+        .farm-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .farm-btn.active {
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            color: white; border-color: transparent;
+            box-shadow: 0 0 16px rgba(102,187,106,0.35);
+        }
+        /* ── Inputs ──────────────────────────────── */
+        .input-group { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+        input[type="date"], input[type="number"] {
+            background: rgba(0,0,0,0.4); color: white;
+            border: 1px solid rgba(102,187,106,0.2);
+            padding: 14px 16px; border-radius: 14px;
+            font-size: 16px; width: 100%;
+            outline: none; transition: border-color 0.2s;
+        }
+        input[type="date"]:focus, input[type="number"]:focus {
+            border-color: var(--accent);
+        }
+        input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); }
+        /* ── Buttons ─────────────────────────────── */
+        button.btn-main {
+            background: linear-gradient(135deg, var(--primary) 0%, #3c9e40 100%);
+            color: white; font-weight: bold; padding: 16px;
+            border: none; border-radius: 40px; width: 100%;
+            cursor: pointer; font-size: 16px; margin-bottom: 12px;
+            box-shadow: 0 4px 15px rgba(46,125,50,0.4);
+            transition: all 0.2s; letter-spacing: 0.5px;
+        }
+        button.btn-main:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(46,125,50,0.55);
+        }
+        button.btn-main:active:not(:disabled) { transform: translateY(0); }
+        button.btn-main:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+        .btn-group button {
+            flex: 1; min-width: 80px;
+            padding: 12px 8px; border: none; border-radius: 14px;
+            color: white; font-size: 11px; font-weight: bold;
+            cursor: pointer; transition: all 0.2s; letter-spacing: 0.3px;
+        }
+        .btn-group button:hover { transform: translateY(-1px); filter: brightness(1.15); }
+        /* ── Stats ───────────────────────────────── */
+        .stats-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+        .stat-box {
+            background: rgba(0,0,0,0.35); padding: 14px 10px;
+            border-radius: 16px; text-align: center;
+            border: 1px solid var(--border);
+        }
+        .stat-box small { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; display: block; }
+        .stat-box b { display: block; font-size: 20px; color: var(--accent); margin-top: 6px; }
+        /* ── Status bar ──────────────────────────── */
+        #statusBar {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            padding: 12px 16px; font-size: 13px;
+            font-weight: bold; text-align: center;
+            z-index: 999; transform: translateY(100%);
+            transition: transform 0.3s; border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        #statusBar.show { transform: translateY(0); }
+        #statusBar.ok   { background: #1b5e20; color: #a5d6a7; }
+        #statusBar.err  { background: #7f0000; color: #ffcdd2; }
+        #statusBar.info { background: #1a3a5a; color: #b3e4ff; }
+        /* ── Registros lista ─────────────────────── */
+        .registros-lista {
+            margin-top: 10px; max-height: 240px;
+            overflow-y: auto;
+        }
+        .registros-lista::-webkit-scrollbar { width: 4px; }
+        .registros-lista::-webkit-scrollbar-track { background: transparent; }
+        .registros-lista::-webkit-scrollbar-thumb { background: #2a4b2a; border-radius: 4px; }
+        .reg-item {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 10px 14px; border-radius: 12px; margin-bottom: 6px;
+            background: rgba(0,0,0,0.3); font-size: 13px;
+            border: 1px solid transparent; transition: border-color 0.2s;
+        }
+        .reg-item:hover { border-color: var(--border); }
+        .reg-data { color: var(--text-muted); }
+        .reg-val  { color: var(--accent); font-weight: bold; font-size: 15px; }
+        .del-btn {
+            background: rgba(180,30,30,0.3); border: 1px solid rgba(255,100,100,0.2);
+            color: #ffaaaa; border-radius: 8px; padding: 4px 10px;
+            cursor: pointer; font-size: 11px; transition: all 0.2s;
+        }
+        .del-btn:hover { background: rgba(180,30,30,0.6); }
+        /* ── Canvas ──────────────────────────────── */
+        .chart-wrap { position: relative; height: 220px; width: 100%; margin-top: 10px; }
+        canvas { width: 100% !important; }
+        /* ── Ano select ──────────────────────────── */
+        .ano-select-wrap { margin-bottom: 14px; }
+        select {
+            width: 100%; background: rgba(0,0,0,0.4); color: white;
+            padding: 12px 16px; border: 1px solid rgba(102,187,106,0.2);
+            border-radius: 14px; font-size: 14px; outline: none;
+            cursor: pointer;
+        }
+        select:focus { border-color: var(--accent); }
+        /* ── Footer ──────────────────────────────── */
+        footer {
+            text-align: center; font-size: 11px;
+            color: var(--text-muted); margin-top: 20px; padding-bottom: 14px;
+        }
+        footer a { color: var(--accent); text-decoration: none; }
+        /* ── Install banner ──────────────────────── */
+        #installBanner {
+            display: none; position: fixed;
+            bottom: 60px; left: 50%; transform: translateX(-50%);
+            background: linear-gradient(135deg, #1b4d1e, #2e7d32);
+            color: white; padding: 12px 20px; border-radius: 40px;
+            font-size: 13px; font-weight: bold; z-index: 998;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+            border: 1px solid rgba(102,187,106,0.3);
+            cursor: pointer; white-space: nowrap;
+            animation: slideUp 0.4s ease;
+        }
+        @keyframes slideUp {
+            from { transform: translateX(-50%) translateY(20px); opacity: 0; }
+            to   { transform: translateX(-50%) translateY(0);    opacity: 1; }
+        }
+        /* ── Offline indicator ───────────────────── */
+        #offlineBar {
+            display: none; background: #5d4000; color: #ffd54f;
+            text-align: center; padding: 6px; font-size: 12px;
+            font-weight: bold;
+        }
+        #offlineBar.show { display: block; }
+        /* ── Empty state ─────────────────────────── */
+        .empty-state {
+            color: var(--text-muted); font-size: 13px;
+            text-align: center; padding: 24px 0;
+        }
+        /* ── Loading dots ────────────────────────── */
+        .loading-dots::after {
+            content: '';
+            animation: dots 1.2s infinite;
+        }
+        @keyframes dots {
+            0%   { content: '.'; }
+            33%  { content: '..'; }
+            66%  { content: '...'; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Splash -->
+<div id="splash">
+    <div class="logo">🌧️</div>
+    <h2>Pluviômetro Pro</h2>
+    <small id="splashMsg" class="loading-dots">Conectando ao Supabase</small>
+    <div class="splash-bar"><div class="splash-progress" id="splashProgress"></div></div>
+    <div class="sql-instructions" id="sqlInstructions">
+        <p>⚠️ Tabelas não encontradas. Execute este SQL no Supabase → SQL Editor:</p>
+        <pre>CREATE TABLE unidades (
+  id SERIAL PRIMARY KEY,
+  chave TEXT UNIQUE NOT NULL,
+  nome TEXT NOT NULL,
+  criado_em TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE registros (
+  id SERIAL PRIMARY KEY,
+  unidade_id INTEGER REFERENCES unidades(id),
+  data DATE NOT NULL,
+  valor_mm NUMERIC(6,1) NOT NULL CHECK (valor_mm >= 0),
+  criado_em TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(unidade_id, data)
+);
+
+INSERT INTO unidades (chave, nome) VALUES
+  ('fazenda1', 'Fazenda 1'),
+  ('fazenda2', 'Fazenda 2');
+
+ALTER TABLE unidades ENABLE ROW LEVEL SECURITY;
+ALTER TABLE registros ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "pub" ON unidades FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "pub" ON registros FOR ALL USING (true) WITH CHECK (true);</pre>
+        <p style="color:#aaa;font-size:11px;margin-top:8px;margin-bottom:0">Após executar, recarregue a página.</p>
+    </div>
+</div>
+
+<!-- Offline bar -->
+<div id="offlineBar">📡 Sem conexão — dados podem estar desatualizados</div>
+
+<!-- Status bar -->
+<div id="statusBar"></div>
+
+<!-- Install banner -->
+<div id="installBanner" onclick="instalarPWA()">📲 Instalar App</div>
+
+<!-- Header -->
+<header>
+    <h2>🌦️ Monitoramento Agrícola</h2>
+    <small id="headerSub">Pluviômetro Pro</small>
+</header>
+
+<div class="container">
+
+    <!-- Card registro -->
+    <div class="card">
+        <h3>⚙️ Configuração das Unidades</h3>
+        <div class="nome-fazenda-group">
+            <div>
+                <label>UNIDADE 1</label>
+                <input type="text" id="nomeFazenda1" placeholder="Fazenda 1" maxlength="30">
+            </div>
+            <div>
+                <label>UNIDADE 2</label>
+                <input type="text" id="nomeFazenda2" placeholder="Fazenda 2" maxlength="30">
+            </div>
+        </div>
+
+        <div class="farm-selector">
+            <button class="farm-btn active" id="btnFarm1" onclick="mudarFazenda('fazenda1')">Fazenda 1</button>
+            <button class="farm-btn"        id="btnFarm2" onclick="mudarFazenda('fazenda2')">Fazenda 2</button>
+        </div>
+
+        <h3>💧 Lançar Chuva — <span id="labelUnidade">Fazenda 1</span></h3>
+        <div class="input-group">
+            <input type="date"   id="dataChuva">
+            <input type="number" id="valorChuva" placeholder="mm de chuva" step="0.1" min="0" max="9999">
+        </div>
+        <button class="btn-main" id="btnSalvar" onclick="lancar()">💾 SALVAR REGISTRO</button>
+
+        <div class="btn-group">
+            <button style="background:#1e5a8a;" onclick="exportarDados()">📥 Exportar</button>
+            <button style="background:#2e6b2e;" onclick="document.getElementById('fileIn').click()">📤 Importar</button>
+            <button style="background:#9e3a2c;" onclick="limparTudo()">🗑️ Limpar Tudo</button>
+        </div>
+        <input type="file" id="fileIn" style="display:none" accept=".json" onchange="importarDados(this.files[0])">
+    </div>
+
+    <!-- Registros recentes -->
+    <div class="card">
+        <h3>📋 Registros Recentes — <span id="labelUnidade2">Fazenda 1</span></h3>
+        <div class="registros-lista" id="registrosLista">
+            <p class="empty-state loading-dots">Carregando</p>
+        </div>
+    </div>
+
+    <!-- Gráfico diário -->
+    <div class="card">
+        <h3>📈 Evolução Diária — Mês Atual</h3>
+        <div class="stats-row">
+            <div class="stat-box"><small>Total Acumulado</small><b id="totalMes">— mm</b></div>
+            <div class="stat-box"><small>Maior Evento</small>   <b id="picoMes">— mm</b></div>
+            <div class="stat-box"><small>Dias com Chuva</small>  <b id="diasChuva">—</b></div>
+        </div>
+        <div class="chart-wrap"><canvas id="chartDiario"></canvas></div>
+    </div>
+
+    <!-- Gráfico mensal -->
+    <div class="card">
+        <h3>📅 Acumulado Mensal</h3>
+        <div class="chart-wrap"><canvas id="chartMensal"></canvas></div>
+    </div>
+
+    <!-- Comparativo -->
+    <div class="card">
+        <h3>📊 Comparativo entre Áreas</h3>
+        <div class="ano-select-wrap">
+            <select id="anoSelect" onchange="atualizarUI()"></select>
+        </div>
+        <div class="chart-wrap" style="height:250px"><canvas id="chartComp"></canvas></div>
+    </div>
+
+    <footer>
+        Desenvolvido por <a href="#">João Divino Barbosa</a> © 2026<br>
+        <small>v2.0 • PWA • Supabase</small>
+    </footer>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────
+//  SUPABASE
+// ─────────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://hcxabapsobefdrzfpjdf.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhjeGFiYXBzb2JlZmRyemZwamRmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5MzIwOTAsImV4cCI6MjA5MDUwODA5MH0.BR_X5yfdBxpQxfPnT8Y8hkz1ijeslcxWPB0fuM28hK8';
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+Chart.register(ChartDataLabels);
+
+let currentFarm = 'fazenda1';
+let charts      = {};
+let unidades    = {};
+let deferredPrompt = null;
+
+// ─────────────────────────────────────────────────────────────
+//  PWA — Install prompt
+// ─────────────────────────────────────────────────────────────
+window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferredPrompt = e;
+    document.getElementById('installBanner').style.display = 'block';
+    setTimeout(() => { document.getElementById('installBanner').style.display = 'none'; }, 8000);
+});
+
+async function instalarPWA() {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') showStatus('✅ App instalado com sucesso!', 'ok');
+    deferredPrompt = null;
+    document.getElementById('installBanner').style.display = 'none';
+}
+
+window.addEventListener('appinstalled', () => showStatus('🎉 App instalado!', 'ok'));
+
+// ─────────────────────────────────────────────────────────────
+//  OFFLINE
+// ─────────────────────────────────────────────────────────────
+function atualizarOffline() {
+    document.getElementById('offlineBar').classList.toggle('show', !navigator.onLine);
+}
+window.addEventListener('online',  atualizarOffline);
+window.addEventListener('offline', atualizarOffline);
+
+// ─────────────────────────────────────────────────────────────
+//  STATUS BAR
+// ─────────────────────────────────────────────────────────────
+function showStatus(msg, tipo = 'ok', ms = 3200) {
+    const bar = document.getElementById('statusBar');
+    bar.textContent = msg;
+    bar.className = `show ${tipo}`;
+    clearTimeout(bar._t);
+    bar._t = setTimeout(() => { bar.className = ''; }, ms);
+}
+
+// ─────────────────────────────────────────────────────────────
+//  SPLASH PROGRESS
+// ─────────────────────────────────────────────────────────────
+function setProgress(pct) {
+    document.getElementById('splashProgress').style.width = pct + '%';
+}
+
+// ─────────────────────────────────────────────────────────────
+//  INIT
+// ─────────────────────────────────────────────────────────────
+window.onload = async () => {
+    atualizarOffline();
+    document.getElementById('dataChuva').valueAsDate = new Date();
+    povoarAnos();
+
+    try {
+        setProgress(20);
+        document.getElementById('splashMsg').textContent = 'Verificando banco de dados';
+
+        const { error } = await db.from('unidades').select('id').limit(1);
+        if (error && (error.code === '42P01' || error.message.includes('does not exist'))) {
+            document.getElementById('sqlInstructions').classList.add('show');
+            document.getElementById('splashMsg').textContent = '⚠️ Tabelas não encontradas!';
+            return;
+        }
+        if (error) throw error;
+
+        setProgress(50);
+        document.getElementById('splashMsg').textContent = 'Carregando unidades';
+        await carregarUnidades();
+
+        setProgress(80);
+        document.getElementById('splashMsg').textContent = 'Carregando gráficos';
+        await atualizarUI();
+
+        setProgress(100);
+        await new Promise(r => setTimeout(r, 400));
+
+        const splash = document.getElementById('splash');
+        splash.style.opacity = '0';
+        setTimeout(() => { splash.style.display = 'none'; }, 600);
+        showStatus('✅ Conectado ao Supabase!', 'ok');
+
+    } catch(e) {
+        document.getElementById('splashMsg').textContent = '❌ ' + e.message;
+        console.error(e);
+    }
+
+    // Salvar nomes ao sair do campo
+    ['nomeFazenda1','nomeFazenda2'].forEach(id => {
+        document.getElementById(id).addEventListener('change', salvarNome);
+    });
+};
+
+// ─────────────────────────────────────────────────────────────
+//  UNIDADES
+// ─────────────────────────────────────────────────────────────
+async function carregarUnidades() {
+    const { data, error } = await db.from('unidades').select('*');
+    if (error) throw error;
+    data.forEach(u => { unidades[u.chave] = u; });
+    atualizarNomesBotoes();
+}
+
+function atualizarNomesBotoes() {
+    const n1 = unidades['fazenda1']?.nome || 'Fazenda 1';
+    const n2 = unidades['fazenda2']?.nome || 'Fazenda 2';
+    document.getElementById('nomeFazenda1').value = n1;
+    document.getElementById('nomeFazenda2').value = n2;
+    document.getElementById('btnFarm1').textContent = n1;
+    document.getElementById('btnFarm2').textContent = n2;
+    const nAtual = unidades[currentFarm]?.nome || currentFarm;
+    document.getElementById('labelUnidade').textContent  = nAtual;
+    document.getElementById('labelUnidade2').textContent = nAtual;
+    document.getElementById('headerSub').textContent     = nAtual + ' ativo';
+}
+
+async function salvarNome() {
+    const n1 = document.getElementById('nomeFazenda1').value.trim() || 'Fazenda 1';
+    const n2 = document.getElementById('nomeFazenda2').value.trim() || 'Fazenda 2';
+    await Promise.all([
+        db.from('unidades').update({ nome: n1 }).eq('chave', 'fazenda1'),
+        db.from('unidades').update({ nome: n2 }).eq('chave', 'fazenda2')
+    ]);
+    await carregarUnidades();
+    await atualizarUI();
+    showStatus('✅ Nomes salvos!', 'ok');
+}
+
+function mudarFazenda(f) {
+    currentFarm = f;
+    document.getElementById('btnFarm1').classList.toggle('active', f === 'fazenda1');
+    document.getElementById('btnFarm2').classList.toggle('active', f === 'fazenda2');
+    atualizarNomesBotoes();
+    atualizarUI();
+}
+
+// ─────────────────────────────────────────────────────────────
+//  REGISTROS
+// ─────────────────────────────────────────────────────────────
+async function lancar() {
+    const dataInput = document.getElementById('dataChuva').value;
+    const valor     = parseFloat(document.getElementById('valorChuva').value);
+
+    if (!dataInput) { showStatus('⚠️ Informe a data.', 'err'); return; }
+    if (isNaN(valor) || valor < 0) { showStatus('⚠️ Valor de chuva inválido.', 'err'); return; }
+
+    const unidade_id = unidades[currentFarm]?.id;
+    if (!unidade_id) { showStatus('❌ Unidade não carregada.', 'err'); return; }
+
+    const btn = document.getElementById('btnSalvar');
+    btn.disabled = true; btn.textContent = '⏳ Salvando...';
+
+    const { error } = await db.from('registros').insert({ unidade_id, data: dataInput, valor_mm: valor });
+
+    btn.disabled = false; btn.textContent = '💾 SALVAR REGISTRO';
+
+    if (error) {
+        if (error.code === '23505') {
+            // Atualizar registro existente
+            const { error: e2 } = await db.from('registros')
+                .update({ valor_mm: valor })
+                .eq('unidade_id', unidade_id).eq('data', dataInput);
+            if (e2) { showStatus('❌ ' + e2.message, 'err'); return; }
+            showStatus('🔄 Registro atualizado!', 'info');
+        } else {
+            showStatus('❌ Erro: ' + error.message, 'err'); return;
+        }
+    } else {
+        showStatus('✅ Registro salvo!', 'ok');
+    }
+
+    document.getElementById('valorChuva').value = '';
+    await atualizarUI();
+}
+
+async function deletarRegistro(id) {
+    if (!confirm('Remover este registro?')) return;
+    const { error } = await db.from('registros').delete().eq('id', id);
+    if (error) { showStatus('❌ ' + error.message, 'err'); return; }
+    showStatus('🗑️ Removido.', 'info');
+    await atualizarUI();
+}
+
+// ─────────────────────────────────────────────────────────────
+//  LIMPAR TUDO
+// ─────────────────────────────────────────────────────────────
+async function limparTudo() {
+    const nAtual = unidades[currentFarm]?.nome || currentFarm;
+    if (!confirm(`Remover TODOS os registros de "${nAtual}"? Esta ação não pode ser desfeita.`)) return;
+    const uid = unidades[currentFarm]?.id;
+    if (!uid) return;
+    const { error } = await db.from('registros').delete().eq('unidade_id', uid);
+    if (error) { showStatus('❌ ' + error.message, 'err'); return; }
+    showStatus('🗑️ Todos os registros removidos.', 'info');
+    await atualizarUI();
+}
+
+// ─────────────────────────────────────────────────────────────
+//  EXPORTAR / IMPORTAR
+// ─────────────────────────────────────────────────────────────
+async function exportarDados() {
+    showStatus('⏳ Exportando...', 'info', 8000);
+    try {
+        const { data: regs, error } = await db.from('registros').select('*, unidades(chave)');
+        if (error) throw error;
+
+        const exportObj = {
+            versao: '2.0',
+            exportado_em: new Date().toISOString(),
+            fazenda1: (regs || [])
+                .filter(r => r.unidades?.chave === 'fazenda1')
+                .map(r => ({ data: r.data, valor: parseFloat(r.valor_mm) }))
+                .sort((a, b) => a.data.localeCompare(b.data)),
+            fazenda2: (regs || [])
+                .filter(r => r.unidades?.chave === 'fazenda2')
+                .map(r => ({ data: r.data, valor: parseFloat(r.valor_mm) }))
+                .sort((a, b) => a.data.localeCompare(b.data)),
+            nomes: {
+                fazenda1: unidades['fazenda1']?.nome || 'Fazenda 1',
+                fazenda2: unidades['fazenda2']?.nome || 'Fazenda 2'
+            }
+        };
+
+        const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `pluviometro_backup_${new Date().toISOString().slice(0,10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        const total = exportObj.fazenda1.length + exportObj.fazenda2.length;
+        showStatus(`✅ ${total} registros exportados!`, 'ok');
+    } catch(e) {
+        showStatus('❌ Erro ao exportar: ' + e.message, 'err');
+    }
+}
+
+async function importarDados(file) {
+    if (!file) return;
+    showStatus('⏳ Importando...', 'info', 10000);
+    try {
+        const text = await file.text();
+        const obj  = JSON.parse(text);
+
+        // Suporte a formato antigo e novo
+        const f1 = obj.fazenda1 || JSON.parse(obj.f1 || '[]');
+        const f2 = obj.fazenda2 || JSON.parse(obj.f2 || '[]');
+
+        let ok = 0, skip = 0;
+
+        for (const farm of ['fazenda1', 'fazenda2']) {
+            const uid  = unidades[farm]?.id;
+            const regs = farm === 'fazenda1' ? f1 : f2;
+            if (!uid || !regs?.length) continue;
+
+            for (const r of regs) {
+                const valor = parseFloat(r.valor ?? r.valor_mm ?? 0);
+                const { error } = await db.from('registros').insert({ unidade_id: uid, data: r.data, valor_mm: valor });
+                if (error && error.code === '23505') skip++;
+                else if (!error) ok++;
+            }
+        }
+
+        // Restaurar nomes se existirem
+        if (obj.nomes) {
+            if (obj.nomes.fazenda1) await db.from('unidades').update({ nome: obj.nomes.fazenda1 }).eq('chave', 'fazenda1');
+            if (obj.nomes.fazenda2) await db.from('unidades').update({ nome: obj.nomes.fazenda2 }).eq('chave', 'fazenda2');
+        }
+
+        await carregarUnidades();
+        await atualizarUI();
+        showStatus(`✅ ${ok} importados, ${skip} já existiam.`, 'ok');
+    } catch(e) {
+        showStatus('❌ Arquivo inválido: ' + e.message, 'err');
+    }
+    document.getElementById('fileIn').value = '';
+}
+
+// ─────────────────────────────────────────────────────────────
+//  ATUALIZAR UI
+// ─────────────────────────────────────────────────────────────
+async function atualizarUI() {
+    const anoSel = parseInt(document.getElementById('anoSelect').value) || new Date().getFullYear();
+    const hoje   = new Date();
+    const mAtual = hoje.getMonth();
+    const aAtual = hoje.getFullYear();
+
+    // Registros do ano selecionado
+    const { data: regsAno, error: e1 } = await db
+        .from('registros').select('*, unidades(chave)')
+        .gte('data', `${anoSel}-01-01`)
+        .lte('data', `${anoSel}-12-31`);
+    if (e1) { showStatus('❌ ' + e1.message, 'err'); return; }
+
+    const dadosF1 = (regsAno || []).filter(r => r.unidades?.chave === 'fazenda1');
+    const dadosF2 = (regsAno || []).filter(r => r.unidades?.chave === 'fazenda2');
+    const dadosAtuais = currentFarm === 'fazenda1' ? dadosF1 : dadosF2;
+
+    // ── Registros recentes ──────────────────────────────────
+    const allRegs = currentFarm === 'fazenda1' ? dadosF1 : dadosF2;
+    // Buscar todos anos para lista (não só ano selecionado)
+    const { data: todosRegs } = await db
+        .from('registros').select('id, data, valor_mm, unidades(chave)')
+        .eq('unidade_id', unidades[currentFarm]?.id)
+        .order('data', { ascending: false }).limit(20);
+
+    const lista = document.getElementById('registrosLista');
+    if (!todosRegs || todosRegs.length === 0) {
+        lista.innerHTML = '<p class="empty-state">Nenhum registro ainda. Lance o primeiro acima! 💧</p>';
+    } else {
+        lista.innerHTML = todosRegs.map(r => `
+            <div class="reg-item">
+                <span class="reg-data">📅 ${fmtData(r.data)}</span>
+                <span class="reg-val">${parseFloat(r.valor_mm).toFixed(1)} mm</span>
+                <button class="del-btn" onclick="deletarRegistro(${r.id})">✕</button>
+            </div>`).join('');
+    }
+
+    // ── Gráfico Diário (mês atual, ano atual) ───────────────
+    const diasNoMes = new Date(aAtual, mAtual + 1, 0).getDate();
+    const { data: regsMes } = await db
+        .from('registros').select('data, valor_mm, unidades(chave)')
+        .gte('data', `${aAtual}-${pad(mAtual + 1)}-01`)
+        .lte('data', `${aAtual}-${pad(mAtual + 1)}-${pad(diasNoMes)}`);
+
+    const valDias = Array(diasNoMes).fill(0);
+    let totalM = 0, picoM = 0, diasComChuva = 0;
+    (regsMes || []).filter(r => r.unidades?.chave === currentFarm).forEach(d => {
+        const idx = parseInt(d.data.split('-')[2]) - 1;
+        const v   = parseFloat(d.valor_mm);
+        valDias[idx] += v;
+        totalM += v;
+        if (v > picoM) picoM = v;
+        if (v > 0) diasComChuva++;
+    });
+    document.getElementById('totalMes').textContent  = totalM.toFixed(1) + ' mm';
+    document.getElementById('picoMes').textContent   = picoM.toFixed(1)  + ' mm';
+    document.getElementById('diasChuva').textContent = diasComChuva + ' dias';
+
+    renderChart('chartDiario', 'bar',
+        Array.from({ length: diasNoMes }, (_, i) => i + 1),
+        [{
+            label: 'mm',
+            data: valDias,
+            backgroundColor: valDias.map(v =>
+                v === 0 ? 'rgba(102,187,106,0.1)' :
+                v >= picoM ? '#a5d6a7' : '#66bb6a'
+            ),
+            borderRadius: 6, borderSkipped: false
+        }]
+    );
+
+    // ── Gráfico Mensal ──────────────────────────────────────
+    const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    const acumMensal = arr => {
+        const m = Array(12).fill(0); let tot = 0;
+        arr.forEach(d => {
+            const i = parseInt(d.data.split('-')[1]) - 1;
+            m[i] += parseFloat(d.valor_mm);
+            tot  += parseFloat(d.valor_mm);
+        });
+        return { m, tot };
+    };
+    const rF1 = acumMensal(dadosF1);
+    const rF2 = acumMensal(dadosF2);
+    const dadosMensal = currentFarm === 'fazenda1' ? rF1.m : rF2.m;
+
+    renderChart('chartMensal', 'bar', meses, [{
+        label: 'mm',
+        data: dadosMensal,
+        backgroundColor: dadosMensal.map((v, i) =>
+            i === mAtual && anoSel === aAtual ? '#a5d6a7' : '#2e7d32'
+        ),
+        borderRadius: 8, borderSkipped: false
+    }]);
+
+    // ── Gráfico Comparativo ─────────────────────────────────
+    const nF1 = unidades['fazenda1']?.nome || 'Fazenda 1';
+    const nF2 = unidades['fazenda2']?.nome || 'Fazenda 2';
+    renderChart('chartComp', 'line', meses, [
+        {
+            label: `${nF1}: ${rF1.tot.toFixed(0)} mm`,
+            data: rF1.m, borderColor: '#66bb6a',
+            backgroundColor: 'rgba(102,187,106,0.15)',
+            tension: 0.4, fill: true, pointRadius: 4,
+            pointBackgroundColor: '#66bb6a'
+        },
+        {
+            label: `${nF2}: ${rF2.tot.toFixed(0)} mm`,
+            data: rF2.m, borderColor: '#b3e4ff',
+            backgroundColor: 'rgba(179,228,255,0.1)',
+            tension: 0.4, fill: true, pointRadius: 4,
+            pointBackgroundColor: '#b3e4ff'
+        }
+    ]);
+}
+
+// ─────────────────────────────────────────────────────────────
+//  RENDER CHART
+// ─────────────────────────────────────────────────────────────
+function renderChart(id, type, labels, datasets) {
+    if (charts[id]) charts[id].destroy();
+    const ctx = document.getElementById(id).getContext('2d');
+    charts[id] = new Chart(ctx, {
+        type,
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: { padding: { top: 28 } },
+            plugins: {
+                legend: {
+                    display: id === 'chartComp',
+                    labels: { color: '#ccc', font: { weight: 'bold', size: 11 }, padding: 14 }
+                },
+                datalabels: {
+                    anchor: 'end', align: 'top', color: '#aaffaa',
+                    font: { weight: 'bold', size: 9 }, clip: false,
+                    formatter: v => v > 0 ? v.toFixed(0) : ''
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(10,26,10,0.95)',
+                    borderColor: 'rgba(102,187,106,0.3)',
+                    borderWidth: 1,
+                    titleColor: '#66bb6a',
+                    bodyColor: '#e0e0e0',
+                    padding: 10,
+                    callbacks: {
+                        label: ctx => ` ${ctx.parsed.y.toFixed(1)} mm`
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    grace: '12%',
+                    ticks: { color: '#668866', font: { size: 10 } },
+                    grid:  { color: 'rgba(46,125,50,0.15)' }
+                },
+                x: {
+                    ticks: { color: '#668866', font: { size: 10 } },
+                    grid:  { display: false }
+                }
+            }
+        }
+    });
+}
+
+// ─────────────────────────────────────────────────────────────
+//  HELPERS
+// ─────────────────────────────────────────────────────────────
+const fmtData = iso => { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; };
+const pad = n => String(n).padStart(2, '0');
+
+function povoarAnos() {
+    const s = document.getElementById('anoSelect'); s.innerHTML = '';
+    const a = new Date().getFullYear();
+    for (let i = a; i >= a - 4; i--) {
+        const o = document.createElement('option'); o.value = i;
+        o.text = `Dados de ${i}${i === a ? ' (atual)' : ''}`;
+        s.appendChild(o);
+    }
+}
+</script>
+
+<!-- Service Worker -->
+<script>
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js')
+            .then(reg => console.log('✅ SW registrado:', reg.scope))
+            .catch(err => console.warn('SW erro:', err));
+    });
+}
+</script>
+
+</body>
+</html>
